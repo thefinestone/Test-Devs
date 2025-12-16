@@ -1,4 +1,4 @@
---V.5 My other applications was declined so I time explaining it, so it'd meet the requirements fully
+--V.5 My other applications were declined so I took more time explaining it, so it'd meet the requirements fully. According to the other application's comments.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
