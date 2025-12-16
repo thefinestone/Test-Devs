@@ -1,5 +1,5 @@
---V.0 This was made in under 30 minutes for the Hidden Devs Application, I contributed to over 50M+ in Roblox visits and am trying to get into commissioning in the mean time. 
---V.1 My first application was declined so I spent more time on it, so it'd meet the requirements fully
+--V.5 My other applications was declined so I time explaining it, so it'd meet the requirements fully
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -7,27 +7,29 @@ local Workspace = game:GetService("Workspace")
 
 local Random = Random.new()
 
+-- I put all the settings here in one table. It makes it way easier to tweak how the orb feels 
+-- without having to hunt for numbers inside the math functions later.
 local CONFIG = {
-	-- Positioning
+	-- Positioning: This decides where the orb floats relative to your RootPart
 	TargetDistance = 5,
 	TargetHeight = 3.5,
 	SideOffset = 2,
 
-	-- Movement
+	-- Movement: I kept the LerpSpeed low to give it a "drag" effect so it feels heavy
 	LerpSpeed = 0.1,
 	TiltSpeed = 0.1,
 	MaxAngle = 20,
 
-	-- Breathing Animation
+	-- Breathing Animation: This controls that up/down floating motion when it's idle
 	BreathDuration = 2,
 	BreathHeight = 0.8,
 
-	-- Text Settings
+	-- Text Settings: This handles how fast the text types out
 	TypewriterSpeed = 0.03,
 	MessageDuration = 4,
 	CooldownRange = NumberRange.new(5, 10),
 
-	-- Orb visuals (extra polish)
+	-- Orb visuals: I wanted the orb to change color when it moves fast so it looks reactive
 	Orb = {
 		BaseColor = Color3.fromRGB(255, 255, 255),
 		TalkColor = Color3.fromRGB(255, 235, 180),
@@ -36,13 +38,13 @@ local CONFIG = {
 		ColorLerpSpeed = 0.15,
 	},
 
-	-- Safety / behavior
+	-- Safety stuff so the orb doesn't get lost if you teleport across the map
 	MaxDistanceFromPlayer = 40,
 	RecenterDistance = 20,
 	RespawnYOffset = 5,
 }
 
---I got these quotes from a confucious website on google
+-- I got these quotes from a confucious website on google
 local QUOTES = {
 	"Real knowledge is to know the extent of one's ignorance.",
 	"It does not matter how slowly you go so long as you do not stop.",
@@ -59,53 +61,56 @@ local QUOTES = {
 local min, max, sin, cos, rad = math.min, math.max, math.sin, math.cos, math.rad
 local v3, cf = Vector3.new, CFrame.new
 
---I Setup OOP here
+-- I Setup OOP here. I did it this way so I can keep all the variables (like IsTalking or Position)
+-- inside one controller object instead of having global variables messing everything up.
 local ConfuciousController = {}
 ConfuciousController.__index = ConfuciousController
 
 function ConfuciousController.new()
 	local self = setmetatable({}, ConfuciousController)
 
-	-- State
+	-- Player stuff
 	self.Player = Players.LocalPlayer
 	self.Character = nil
 	self.Root = nil
 	self.Humanoid = nil
 
+	-- Visual stuff
 	self.Model = nil
 	self.ModelPrimaryPart = nil
 	self.RenderParts = {}
 	self.SubtitleLabel = nil
 
-	-- Flags
+	-- Logic Flags
 	self.IsTalking = false
 	self.NextTalkTime = tick() + 5
-	self.CurrentMessageId = 0
+	self.CurrentMessageId = 0 -- I use this ID to stop old typing tasks if a new one starts
 	self.LastQuoteIndex = nil
 
-	-- Movement State
+	-- Physics state
 	self.LastPosition = v3(0, 0, 0)
 	self.CurrentTilt = v3(0, 0, 0)
 	self.Time = 0
 
-	-- Breathing
+	-- Breathing: I'm using a Vector3Value here so I can just Tween it.
+	-- It's easier than doing complex sine wave math inside the update loop.
 	self.BreathOffsetValue = Instance.new("Vector3Value")
 	self.BreathOffsetValue.Value = v3(0, -CONFIG.BreathHeight / 2, 0)
 
-	-- Visual State
+	-- Color State
 	self.TargetOrbColor = CONFIG.Orb.BaseColor
 	self.CurrentOrbColor = CONFIG.Orb.BaseColor
 	self.ColorState = "Idle"
 
-	-- Connections
+	-- I keep a list of connections so I can disconnect them later and avoid memory leaks
 	self.Connections = {}
 
-	-- Lifetime
 	self.IsDestroyed = false
 
 	return self
 end
 
+-- I made this helper function so I don't leave zombie events running if the script restarts
 function ConfuciousController:AddConnection(conn)
 	if conn then
 		table.insert(self.Connections, conn)
@@ -123,6 +128,8 @@ function ConfuciousController:DisconnectAll()
 	end
 end
 
+-- I have to re-bind everything when the character spawns because the old RootPart gets deleted.
+-- The math relies on the RootPart existing, so this is important.
 function ConfuciousController:BindToCharacter(character)
 	self.Character = character
 	self.Root = nil
@@ -141,6 +148,7 @@ function ConfuciousController:BindToCharacter(character)
 		end))
 	end
 
+	-- I move the model to the player instantly here so it doesn't try to fly in from (0,0,0)
 	if self.Model then
 		local startPos = (self.Root and self.Root.Position or v3()) + v3(0, CONFIG.RespawnYOffset, 0)
 		self.Model:PivotTo(cf(startPos))
@@ -160,6 +168,7 @@ function ConfuciousController:OnCharacterDied()
 		self.SubtitleLabel.Text = ""
 	end
 
+	-- I fade the orb out when you die instead of deleting it instantly, just looks cleaner
 	if self.Model and self.ModelPrimaryPart then
 		local info = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 		local goals = { Transparency = 1 }
@@ -168,6 +177,7 @@ function ConfuciousController:OnCharacterDied()
 		end
 	end
 
+	-- Make sure it doesn't try to talk while you're dead
 	self.NextTalkTime = math.huge
 end
 
@@ -175,27 +185,23 @@ function ConfuciousController:Init()
 	self.Character = self.Player.Character or self.Player.CharacterAdded:Wait()
 	self:BindToCharacter(self.Character)
 
-	--Create the Interface
 	self:SetupInterface()
-
-	--Spawn the Model
 	self:SpawnModel()
 
-	--Start the Loop
+	-- I decided to use RenderStepped here. The orb needs to update every single frame
+	-- to stay smooth with the camera, otherwise it looks jittery.
 	self:AddConnection(RunService.RenderStepped:Connect(function(dt)
 		self:Update(dt)
 	end))
 
-	-- Start the Breathing
 	self:StartBreathingTween()
 
-	-- Listen for respawns
 	self:AddConnection(self.Player.CharacterAdded:Connect(function(char)
 		self:OnCharacterAdded(char)
 	end))
 end
 
---This setsup the UI, not really necessary but it is efficient
+-- I split the UI setup into its own function just to keep the Init function clean
 function ConfuciousController:SetupInterface()
 	local playerGui = self.Player:WaitForChild("PlayerGui", 5)
 	if not playerGui then
@@ -212,7 +218,8 @@ function ConfuciousController:SetupInterface()
 	self.SubtitleLabel = SubTitle
 end
 
--- Cache parts so we can color + tween nicely
+-- I cache the parts into a table once at the start. 
+-- If I searched through the model every frame in the loop, it would cause a lot of lag.
 function ConfuciousController:CacheModelParts()
 	self.RenderParts = {}
 
@@ -241,8 +248,8 @@ function ConfuciousController:CacheModelParts()
 	end
 end
 
---This puts the orb near you
 function ConfuciousController:SpawnModel()
+	-- I clean up the old model first so we don't end up with duplicates
 	if self.Model then
 		self.Model:Destroy()
 		self.Model = nil
@@ -250,11 +257,10 @@ function ConfuciousController:SpawnModel()
 		self.RenderParts = {}
 	end
 
-	-- Look for the model inside the script
 	local template = script:FindFirstChild("ConfuciousOrb")
 
+	-- Fallback incase the model isn't found or doesn't exist, I create a part manually so the script doesn't error
 	if not template then
-		-- Fallback incase the model isn't found or doesn't exist, since it's just 1 part it's fine, and just for the hidden devs reader guy
 		local part = Instance.new("Part")
 		part.Name = "Head"
 		part.Size = v3(1.5, 1.5, 1.5)
@@ -281,7 +287,8 @@ function ConfuciousController:SpawnModel()
 	end
 end
 
---This is for the size tween for the orb
+-- I used an infinite loop Tween for the breathing here.
+-- It's just way more efficient than calculating the offset every frame manually.
 function ConfuciousController:StartBreathingTween()
 	local startVal = v3(0, -CONFIG.BreathHeight / 2, 0)
 	local endVal = v3(0, CONFIG.BreathHeight / 2, 0)
@@ -305,19 +312,21 @@ function ConfuciousController:GetGoalPosition()
 		return v3()
 	end
 
-	-- The cframe for the orb
 	local cfRoot = self.Root.CFrame
 
+	-- I calculate the position based on the player's LookVector and RightVector.
+	-- This ensures the orb always stays relative to your rotation, not the world.
 	local basePos = self.Root.Position
 		- (cfRoot.LookVector * CONFIG.TargetDistance)
 		+ (cfRoot.RightVector * CONFIG.SideOffset)
 		+ v3(0, CONFIG.TargetHeight, 0)
 
-	-- I Added the breathing offset
+	-- Then I add the breathing offset on top
 	local finalPos = basePos + self.BreathOffsetValue.Value
 	return finalPos
 end
 
+-- This handles that "banking" effect like a plane turning.
 function ConfuciousController:CalculateTilt(velocity)
 	local speed = velocity.Magnitude
 	if speed < 0.1 then
@@ -325,13 +334,17 @@ function ConfuciousController:CalculateTilt(velocity)
 	end
 
 	local forward = velocity.Unit
+	-- I used the Cross Product here to get a vector sideways to the movement.
+	-- That gives me the axis I need to tilt around.
 	local right = forward:Cross(v3(0, 1, 0))
 
+	-- I clamp the angle so it doesn't spin crazy fast
 	local tiltAmount = math.clamp(speed / 10, 0, 1) * CONFIG.MaxAngle
 	return right * tiltAmount
 end
 
--- Extra: keep orb from drifting too far from the player
+-- I added this so if you teleport (like using a reset), the orb doesn't take 10 seconds to float over.
+-- It just snaps closer if the distance gets too big.
 function ConfuciousController:ClampToPlayerDistance(position)
 	if not self.Root then
 		return position
@@ -350,7 +363,6 @@ function ConfuciousController:ClampToPlayerDistance(position)
 	return position
 end
 
--- Visuals: color reacts to speed / talking
 function ConfuciousController:UpdateOrbVisuals(velocity, dt)
 	if not self.ModelPrimaryPart then
 		return
@@ -358,17 +370,18 @@ function ConfuciousController:UpdateOrbVisuals(velocity, dt)
 
 	local speed = velocity.Magnitude
 
-	-- Pick target color based on state
+	-- If it's talking, I force that color. If not, I mix the color based on speed.
 	if self.IsTalking then
 		self.TargetOrbColor = CONFIG.Orb.TalkColor
 	else
+		-- I lerp the color based on how fast the orb is going for a nice visual effect
 		local speedAlpha = math.clamp(speed / CONFIG.Orb.SpeedForMaxEffect, 0, 1)
 		local idleColor = CONFIG.Orb.BaseColor
 		local fastColor = CONFIG.Orb.SpeedColor
 		self.TargetOrbColor = idleColor:Lerp(fastColor, speedAlpha)
 	end
 
-	-- Smoothly lerp to target color
+	-- I smooth the color change so it doesn't flash instantly
 	self.CurrentOrbColor = self.CurrentOrbColor:Lerp(self.TargetOrbColor, CONFIG.Orb.ColorLerpSpeed)
 
 	for _, part in ipairs(self.RenderParts) do
@@ -376,7 +389,6 @@ function ConfuciousController:UpdateOrbVisuals(velocity, dt)
 	end
 end
 
---This is for the positioning
 function ConfuciousController:Update(dt)
 	if self.IsDestroyed then
 		return
@@ -398,33 +410,30 @@ function ConfuciousController:Update(dt)
 	local currentCFrame = self.Model:GetPivot()
 	local currentPos = currentCFrame.Position
 
+	-- I use Lerp here to make the movement smooth. 
+	-- If I just set the position directly, it would look stiff and locked to the player.
 	local newPos = currentPos:Lerp(goalPos, CONFIG.LerpSpeed)
 
+	-- I calculate velocity manually since I'm moving it with CFrame, not physics
 	local velocity = (newPos - self.LastPosition) / math.max(dt, 1e-3)
 	self.LastPosition = newPos
 
 	local targetTilt = self:CalculateTilt(velocity)
 	self.CurrentTilt = self.CurrentTilt:Lerp(targetTilt, CONFIG.TiltSpeed)
 
-	--Apply CFrame
+	-- I combine all the rotations here: Look at player + Idle Spin + Bank Tilt
 	local lookCF = CFrame.lookAt(newPos, self.Root.Position)
-
-	-- Small idle spin so it doesn't feel dead
 	local idleSpinAngle = sin(self.Time * 1.2) * rad(5)
 	local idleSpinCF = CFrame.Angles(0, idleSpinAngle, 0)
-
 	local bankCF = CFrame.Angles(rad(self.CurrentTilt.X), rad(self.CurrentTilt.Y), rad(self.CurrentTilt.Z))
 
 	self.Model:PivotTo(lookCF * idleSpinCF * bankCF)
 
-	-- Update orb visuals to react to speed and speaking
 	self:UpdateOrbVisuals(velocity, dt)
-
-	--Check Quotes
 	self:UpdateQuotes()
 end
 
--- Get a quote without repeating the last one
+-- I made this logic so it doesn't pick the same quote twice in a row
 function ConfuciousController:GetNextQuote()
 	if #QUOTES == 0 then
 		return ""
@@ -446,28 +455,27 @@ function ConfuciousController:GetNextQuote()
 	return QUOTES[index]
 end
 
---This is for switching the orbs
 function ConfuciousController:UpdateQuotes()
-	-- Making sure it's not talking already
 	if self.IsTalking then
 		return
 	end
 
-	-- CD check
+	-- I check the time here to make sure we respect the cooldown
 	if tick() > self.NextTalkTime then
 		local txt = self:GetNextQuote()
 
+		-- I use task.spawn so the typewriter effect doesn't pause the main orb movement loop
 		task.spawn(function()
-			-- play the effect
 			self:PlayTypewriterEffect(txt)
 		end)
 
-		-- CD
 		local cd = math.random(CONFIG.CooldownRange.Min, CONFIG.CooldownRange.Max)
 		self.NextTalkTime = tick() + cd
 	end
 end
 
+-- I increment the message ID here. This effectively cancels any old loops running
+-- because they will see the ID changed and stop themselves.
 function ConfuciousController:CancelCurrentSpeech()
 	self.CurrentMessageId = self.CurrentMessageId + 1
 	self.IsTalking = false
@@ -481,7 +489,6 @@ function ConfuciousController:CancelCurrentSpeech()
 	end
 end
 
---This is for the text fading in and out, and typewriting it
 function ConfuciousController:PlayTypewriterEffect(text)
 	if not self.SubtitleLabel then
 		return
@@ -492,7 +499,6 @@ function ConfuciousController:PlayTypewriterEffect(text)
 	self.IsTalking = true
 	self.SubtitleLabel.Text = ""
 
-	-- Always make it visible before typing
 	self.SubtitleLabel.TextTransparency = 0
 	self.SubtitleLabel.TextStrokeTransparency = 0
 	if self.SubtitleLabel.UIStroke then
@@ -502,7 +508,7 @@ function ConfuciousController:PlayTypewriterEffect(text)
 	self.CurrentMessageId = self.CurrentMessageId + 1
 	local myMessageId = self.CurrentMessageId
 
-	-- Typewriter Loop
+	-- This is the typewriter loop
 	for i = 1, #text do
 		if myMessageId ~= self.CurrentMessageId then
 			return
@@ -513,7 +519,7 @@ function ConfuciousController:PlayTypewriterEffect(text)
 		local char = string.sub(text, i, i)
 		local delay = CONFIG.TypewriterSpeed
 
-		-- Pause when there's punctuations
+		-- I added a longer delay for punctuation so the speech feels more natural and less robotic
 		if char == "." or char == "," or char == ";" then
 			delay = delay * 4
 		end
@@ -527,8 +533,8 @@ function ConfuciousController:PlayTypewriterEffect(text)
 
 	task.wait(CONFIG.MessageDuration)
 
+	-- I used a Tween here to fade the text out cleanly
 	local fadeInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-
 	local t1 = TweenService:Create(self.SubtitleLabel, fadeInfo, { TextTransparency = 1 })
 	local t2 = TweenService:Create(self.SubtitleLabel, fadeInfo, { TextStrokeTransparency = 1 })
 	local t3
@@ -539,9 +545,7 @@ function ConfuciousController:PlayTypewriterEffect(text)
 
 	t1:Play()
 	t2:Play()
-	if t3 then
-		t3:Play()
-	end
+	if t3 then t3:Play() end
 
 	t1.Completed:Wait()
 
