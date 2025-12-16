@@ -1,5 +1,11 @@
 --V.5 My other applications were declined so I took more time explaining it, so it'd meet the requirements fully. According to the other application's comments.
 
+-- Features I added to show my understanding:
+-- 1. Physics based movement: I used Lerp for smoothing and calculated a 'tilt' vector based on velocity so it tilts like a plane when turning.
+-- 2. State Management: It uses OOP Controller class to handle character respawning and death cleanup without memory leaks.
+-- 3. Dialogue System: A custom typewriter effect that actually pauses at punctuation marks to make the speech feel good and natural.
+
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -8,7 +14,7 @@ local Workspace = game:GetService("Workspace")
 local Random = Random.new()
 
 -- I grouped all the variables into this config table. 
--- This separates the data from the logic, which makes it way easier for me to tweak the "feel", and helps my OCD
+-- This separates the data from the logic, which makes it way easier for me to tweak the feel of the confucious orb.
 -- Also helps with the movement and animation later without hunting through the math functions, it's just all in one place.
 local CONFIG = {
 	-- Positioning: I use these offsets relative to the RootPart's CFrame so the orb stays locked to the player's shoulder.
